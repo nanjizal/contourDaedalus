@@ -21,8 +21,8 @@ function clearAll( gl: GL, width: Int, height: Int, r: Float = 0., g: Float = 0.
     gl.enable( GL.BLEND);
     //gl.blendFunc( GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA);
     gl.blendFunc( GL.ONE, GL.ONE_MINUS_SRC_ALPHA );
-    //gl.enable( GL.CULL_FACE );
-    gl.enable( GL.DEPTH_TEST );
+    gl.enable( GL.CULL_FACE );
+    /////gl.enable( GL.DEPTH_TEST );
     //gl.blendFunc(GL.ONE, GL.ONE_MINUS_SRC_ALPHA);
     //gl.enable( GL.TEXTURE_2D );
 }
