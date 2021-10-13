@@ -33,7 +33,7 @@ import js.html.webgl.Program;
 import js.html.webgl.Texture;
 
 function main(){
-    new CornerContourWebGL2();
+    new CornerContourWebGL();
 }
 
 class CornerContourWebGL2 {

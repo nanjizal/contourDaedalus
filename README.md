@@ -1,6 +1,6 @@
-# cornerContour - Turtle Animation
+#contourDaedalus
+## cornerContour - hxDaedalus
 
-cornerContour WebGL test of animation with the Sketcher's turtle API.
+WIP
 
-
-[demo](https://nanjizal.github.io/turtleAnimation/index.html)
+[demo](https://nanjizal.github.io/contourDaedalus/index.html)
