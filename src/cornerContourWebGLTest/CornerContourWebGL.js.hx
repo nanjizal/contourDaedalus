@@ -3,6 +3,7 @@ package cornerContourWebGLTest;
 import cornerContour.io.Float32Array;
 import cornerContour.io.ColorTriangles2D;
 import cornerContour.io.IteratorRange;
+import cornerContour.io.Array2DTriangles;
 // contour code
 import cornerContour.Sketcher;
 import cornerContour.Pen2D;
@@ -14,17 +15,21 @@ import justPath.transform.ScaleContext;
 import justPath.transform.ScaleTranslateContext;
 import justPath.transform.TranslationContext;
 
-// webgl gl stuff
-import cornerContourWebGLTest.ShaderColor2D;
-import cornerContourWebGLTest.HelpGL;
-import cornerContourWebGLTest.BufferGL;
-import cornerContourWebGLTest.GL;
+import js.html.webgl.RenderingContext;
+import js.html.CanvasRenderingContext2D;
 
 // html stuff
-import cornerContourWebGLTest.Sheet;
-import cornerContourWebGLTest.DivertTrace;
+import cornerContour.web.Sheet;
+import cornerContour.web.DivertTrace;
 
 import htmlHelper.tools.AnimateTimer;
+import cornerContour.web.Renderer;
+
+// webgl gl stuff
+import cornerContour.web.ShaderColor2D;
+import cornerContour.web.HelpGL;
+import cornerContour.web.BufferGL;
+import cornerContour.web.GL;
 
 // js webgl 
 import js.html.webgl.Buffer;
@@ -32,11 +37,17 @@ import js.html.webgl.RenderingContext;
 import js.html.webgl.Program;
 import js.html.webgl.Texture;
 
+import hxDaedalus.data.ConstraintSegment;
+import hxDaedalus.data.Mesh;
+import hxDaedalus.data.Object;
+import hxDaedalus.data.Vertex;
+import hxDaedalus.factories.RectMesh;
+
 function main(){
     new CornerContourWebGL();
 }
 
-class CornerContourWebGL2 {
+class CornerContourWebGL {
     // cornerContour specific code
     var sketcher:       Sketcher;
     var pen2D:          Pen2D;
@@ -49,14 +60,9 @@ class CornerContourWebGL2 {
     public var width:            Int;
     public var height:           Int;
     public var mainSheet:        Sheet;
-    // Color
-    public var programColor:     Program;
-    public var bufColor:         Buffer;
     var divertTrace:             DivertTrace;
-    var arrData:                 ColorTriangles2D;
-    var len:                     Int;
-    var totalTriangles:          Int;
-    var bufferLength:            Int;
+    var renderer:                Renderer;
+    
     public function new(){
         divertTrace = new DivertTrace();
         trace('Contour Test');
@@ -64,13 +70,58 @@ class CornerContourWebGL2 {
         height = 768;
         creategl();
         // use Pen to draw to Array
-        drawContours();
-        rearrageDrawData();
-        setupProgramColor();
-        setupInputColor();
-        // call when changing program mode
-        setProgramMode();
+        initContours();
+        renderer = { gl: gl, pen: pen2D, width: width, height: height };
+        initDaedalus();
+        drawDaedalus();
+        renderer.rearrangeData();
+        renderer.setup();
         setAnimate();
+    }
+    var _mesh:      Mesh;
+    var _view:      ContourDaedalus;
+    var _object:    Object;
+    var g:          Sketcher; 
+    //inline
+    function initDaedalus(){
+        _view = new ContourDaedalus();
+        // build a rectangular 2 polygons mesh of 600x400
+        _mesh = RectMesh.buildRectangle(600, 400);
+        // SINGLE VERTEX INSERTION / DELETION
+        // insert a vertex in mesh at coordinates (550, 50)
+        var vertex : Vertex = _mesh.insertVertex(550, 50);
+        
+        // SINGLE CONSTRAINT SEGMENT INSERTION / DELETION
+        // insert a segment in mesh with end points (70, 300) and (530, 320)
+        var segment : ConstraintSegment = _mesh.insertConstraintSegment(70, 300, 530, 320);
+        
+        // CONSTRAINT SHAPE INSERTION / DELETION
+        // insert a shape in mesh (a crossed square)
+        var shape = _mesh.insertConstraintShape( [
+                         50.,  50., 100.,  50.,      /* 1st segment with end points (50, 50) and (100, 50)       */
+                        100.,  50., 100., 100.,      /* 2nd segment with end points (100, 50) and (100, 100)     */
+                        100., 100.,  50., 100.,      /* 3rd segment with end points (100, 100) and (50, 100)     */
+                         50., 100.,  50.,  50.,      /* 4rd segment with end points (50, 100) and (50, 50)       */
+                         20.,  50., 130., 100.       /* 5rd segment with end points (20, 50) and (130, 100)      */
+                                                ] );
+                                                
+        // OBJECT INSERTION / TRANSFORMATION / DELETION
+        // insert an object in mesh (a cross)
+        var objectCoords : Array<Float> = new Array<Float>();
+
+        _object = new Object();
+        _object.coordinates = [ -50.,   0.,  50.,  0.,
+                                  0., -50.,   0., 50.,
+                                -30., -30.,  30., 30.,
+                                 30., -30., -30., 30.
+                                ];
+        _mesh.insertObject( _object );  // insert after coordinates are setted
+
+        // you can transform objects with x, y, rotation, scaleX, scaleY, pivotX, pivotY
+        _object.x = 400;
+        _object.y = 200;
+        _object.scaleX = 2;
+        _object.scaleY = 2;
     }
     inline
     function creategl( ){
@@ -78,186 +129,37 @@ class CornerContourWebGL2 {
         mainSheet.create( width, height, true );
         gl = mainSheet.gl;
     }
-    
     public
-    function rearrageDrawData(){
-        trace( 'rearrangeDrawData' );
-        var pen = pen2D;
-        var data = pen.arr;
-        // triangle length
-        totalTriangles = Std.int( data.size/7 );
-        bufferLength = totalTriangles*3;
-         // xy rgba = 6
-        len = Std.int( totalTriangles * 6 * 3 );
-        var j = 0;
-        arrData = new ColorTriangles2D( len );
-        for( i in 0...totalTriangles ){
-            pen.pos = i;
-            // populate arrData.
-            arrData.pos    = i;
-            arrData.argb   = Std.int( data.color );
-            arrData.ax     = gx( data.ax );
-            arrData.ay     = gy( data.ay );
-            arrData.bx     = gx( data.bx );
-            arrData.by     = gy( data.by );
-            arrData.cx     = gx( data.cx );
-            arrData.cy     = gy( data.cy );
-        }
-    }
-    public
-    function drawContours(){
-        trace( 'drawContours' );
+    function initContours(){
         pen2D = new Pen2D( 0xFF0000FF );
         pen2D.currentColor = 0xff0000FF;
-        // TURTLE CODE HERE
-        enneagram( 150, 510, 2 );
-        heptagram( 370, 240, 5 );
-        pentagram( 50, 140, 10 );
-    }
-    public
-    function enneagram( x: Float, y: Float, size: Float ){
         sketcher = new Sketcher( pen2D, StyleSketch.Fine, StyleEndLine.no );
-        var sides = 9;
-        var angle: Float = Sketcher.sidetaGram( 9 );
+    }
+    public function drawDaedalus(){
         var s = Std.int( pen2D.pos );
-        sketcher.setPosition( x, y )
-                .penSize( size )
-                .yellow()
-                .penColorChange( -0.09, 0.01, 0.09 )
-                .west()
-                .fillOff()
-                .beginRepeat( sides ) // to make corners nice, do extra turn.
-                .archBezier( 300, 150, -10 )
-                .right( angle )
-                .penColorChange( -0.09, 0.01, 0.09 )
-                .endRepeat()
-                .blue();
-        allRange.push( s...Std.int( pen2D.pos ) );
+        // redefine sketcher simplest?
+        // need to reset pen2D.pos and overwrite old data
+        pen2D.pos = 0;
+        pen2D.arr = new Array2DTriangles();
+        g = sketcher;
+        _object.rotation += 0.05;
+        _mesh.updateObjects();  // don't forget to update
+        _view.drawMesh( g, _mesh );
+        allRange.push( s...Std.int( pen2D.pos - 1 ) );
     }
-    public
-    function heptagram( x: Float, y: Float, size: Float ){
-        var sketcher = new Sketcher( pen2D, StyleSketch.Fine, StyleEndLine.no );
-        var sides = 7;
-        var angle: Float = Sketcher.sidetaGram( 7 );
-        var s = Std.int( pen2D.pos );
-        sketcher.setPosition( x, y )
-                .penSize( size )
-                .plum()
-                .west()
-                .fillOff()
-                .beginRepeat( sides+1 ) // to make corners nice, do extra turn.
-                .archBezier( 300, 150, 30 )
-                .right( angle )
-                .penColorChange( 0.09, 0.1, -0.09 )
-                .endRepeat()
-                .blue();
-        allRange.push( s...Std.int( pen2D.pos ) );
-    }
-    public
-    function pentagram( x: Float, y: Float, size ){
-        var sketcher = new Sketcher( pen2D, StyleSketch.Fine, StyleEndLine.no );
-        var sides = 5;
-        var angle: Float = Sketcher.sidetaGram( 6 );
-        var s = Std.int( pen2D.pos );
-        sketcher.setPosition( x, y )
-                .penSize( size )
-                .blue()
-                .west()
-                .fillOff()
-                .beginRepeat( sides+1 )
-                .archBezier( 300, 150, 30 )
-                .right( 144 ) // sugar my sedetaGram does not work for small values
-                .penColorChange( 0.09, 0.1, -0.09 )
-                .endRepeat()
-                .blue();
-        var range = s...Std.int( pen2D.pos );
-        allRange.push( range );
-    }
-    function setProgramMode() {
-        gl.useProgram( programColor );
-        updateBufferXY_RGBA( gl, programColor, vertexPosition, vertexColor );
-        gl.bindBuffer( GL.ARRAY_BUFFER, bufColor );
-    }
-    inline
-    function setupProgramColor(){
-        programColor = programSetup( gl, vertexString, fragmentString );
-    }
-    var drawCount = 0;
-    var count = 0;
-    var speed = 0.055;
-    var toggle = true;
+
     var allRange = new Array<IteratorRange>();
-    var theta = 0.;
     inline
     function render(){
+        drawDaedalus();
         clearAll( gl, width, height, 0., 0., 0., 1. );
-        var triSize = 6*3;
-        var totalTriangles = Std.int( pen2D.arr.size/7 );
-        ( toggle )? count++: count--;
-        var starting = 0;
-        var ending = 0;
-        var l = allRange.length;
-        var extra = 0;
-        var allEnded = 0;
-        var allStarted = 0;
-        for( i in 0...l ){
-            var range = allRange[i];
-            var addOn: Float = count*(range.max - range.start)/100;
-            // used so the roughly finish at same time.
-            var ending = range.start + Math.round( addOn*speed )*triSize;
-            if( ending > range.max - 1 ) {
-                ending = range.max - 1;
-                allEnded++;
-            }
-            if( ending < range.start ){
-                ending = range.start;
-                allStarted++;
-            }
-            switch( i ){
-                case 0:
-                    arrData.rotateRange( range, gx(150 + 70), gy(510-70), Math.PI/100 );
-                case 1:
-                    arrData.translateRange( range, 0.005 * Math.sin( theta*theta - Math.PI/4 ), 0.005 * Math.sin( theta - Math.PI/8 ) );
-                case 2:
-                    arrData.alphaRange( range, 0.5 + 0.3*Math.sin( theta - Math.PI/2 ) );
-            }
-            drawData( programColor, arrData.getFloat32Array(), range.start, ending, triSize );
-            if( allEnded == 3 ) toggle = false;
-            if( allStarted == 3 ) toggle = true;
-        }
-        theta+= 0.1;
+        renderer.rearrangeData(); // destroy data and rebuild
+        renderer.updateData(); // update
+        renderer.drawData( allRange[0].start...allRange[0].max );
     }
     inline
     function setAnimate(){
         AnimateTimer.create();
         AnimateTimer.onFrame = function( v: Int ) render();
-    }
-    inline
-    function setupInputColor(){
-        gl.bindBuffer( GL.ARRAY_BUFFER, null );
-        gl.useProgram( programColor );
-        var arr = arrData.getFloat32Array();
-        bufColor = interleaveXY_RGBA( gl
-                                    , programColor
-                                    , arr
-                                    , vertexPosition, vertexColor, true );
-        gl.bindBuffer( GL.ARRAY_BUFFER, bufColor );
-    }
-
-    public
-    function drawData( program: Program, dataGL: Float32Array, start: Int, end: Int, triSize: Int ){
-        var partData = dataGL.subarray( start*triSize, end*triSize );
-        gl.bufferSubData( GL.ARRAY_BUFFER, 0, cast partData );
-        gl.useProgram( program );
-        gl.drawArrays( GL.TRIANGLES, 0, Std.int( ( end - start ) * 3));
-    }
-    
-    public inline
-    function gx( v: Float ): Float {
-        return -( 1 - 2*v/width );
-    }
-    public inline
-    function gy( v: Float ): Float {
-        return ( 1 - 2*v/height );
     }
 }
